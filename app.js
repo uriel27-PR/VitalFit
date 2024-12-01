@@ -8,6 +8,7 @@ import express from 'express';
 import bodyParser from 'body-parser';
 import session from 'express-session';
 import multer from 'multer';
+import bcrypt from 'bcrypt';
 import mysql from 'mysql2/promise';
 
 const app = express();
@@ -44,10 +45,11 @@ app.use(bodyParser.json());
 // En app.js
 app.use(express.static('public'));
 app.use(express.static(path.join(__dirname, 'views')));
+// Configuración de la sesión
 app.use(session({
-    secret: 'secreto',
+    secret: 'tu_secreto_aqui',
     resave: false,
-    saveUninitialized: true
+    saveUninitialized: false
 }));
 
 // Multer Configuration for File Uploads
@@ -98,45 +100,106 @@ app.get('/', async (req, res) => {
     }
 });
 
-// Principal Page Route
+// Ruta para la página principal
 app.get('/principal', async (req, res) => {
-    try {
-      // Asegúrate de obtener los productos de la base de datos
-      const productos = await tuModeloDeProductos.find();
-      
-      // Pasa los productos a la vista
-      res.render('principal', { 
-        productos: productos, // Asegúrate de pasar los productos como un array
-        usuario: req.session.usuario // Si estás usando sesiones para el usuario
-      });
-    } catch (error) {
-      console.error('Error:', error);
-      res.status(500).send('Error al cargar la página');
+    // Verificar si el usuario está autenticado
+    if (!req.session.usuario) {
+        return res.redirect('/');
     }
-  });
+
+    try {
+        const connection = await pool.getConnection();
+        
+        try {
+            // Obtener los productos
+            const [productos] = await connection.execute('SELECT * FROM productos');
+            
+            // Renderizar la vista con los productos y la información del usuario
+            res.render('principal', { 
+                productos: productos,
+                usuario: req.session.usuario
+            });
+        } catch (error) {
+            console.error('Error al obtener productos:', error);
+            res.status(500).send('Error al cargar la página');
+        } finally {
+            connection.release();
+        }
+    } catch (error) {
+        console.error('Error de conexión:', error);
+        res.status(500).send('Error al cargar la página');
+    }
+});
 
 // Login Page Route
 app.get('/iniciarsesion', (req, res) => {
     res.render('iniciarsesion');
 });
 
-// Login Process
-app.post('/iniciarsesion', async (req, res) => {
-    const { email, password } = req.body;
-
+// Ruta para procesar el inicio de sesión
+app.post('/login', async (req, res) => {
     try {
-        const [results] = await vitalfit.query('SELECT * FROM usuarios WHERE email = ? AND password = ?', [email, password]);
+        const { correo, contraseña } = req.body;
+        
+        // Obtener conexión del pool
+        const connection = await pool.getConnection();
+        
+        try {
+            // Buscar el usuario por correo
+            const [usuarios] = await connection.execute(
+                'SELECT * FROM usuarios WHERE correo = ?',
+                [correo]
+            );
 
-        if (results.length > 0) {
-            const usuario = results[0];
-            req.session.userId = usuario.id;
-            return res.redirect('/opcionescuenta');
-        } else {
-            return res.status(401).render('iniciarsesion', { error: 'Credenciales incorrectas' });
+            // Verificar si se encontró el usuario
+            if (usuarios.length === 0) {
+                return res.status(401).json({ 
+                    success: false, 
+                    mensaje: 'Correo o contraseña incorrectos' 
+                });
+            }
+
+            const usuario = usuarios[0];
+
+            // Verificar la contraseña
+            const contraseñaCorrecta = await bcrypt.compare(contraseña, usuario.contraseña);
+
+            if (!contraseñaCorrecta) {
+                return res.status(401).json({ 
+                    success: false, 
+                    mensaje: 'Correo o contraseña incorrectos' 
+                });
+            }
+
+            // Guardar información del usuario en la sesión
+            req.session.usuario = {
+                id: usuario.id,
+                nombre: usuario.nombre,
+                correo: usuario.correo
+            };
+
+            // Redirigir al usuario a la página principal
+            res.json({ 
+                success: true, 
+                redirect: '/principal' 
+            });
+
+        } catch (error) {
+            console.error('Error en la consulta:', error);
+            res.status(500).json({ 
+                success: false, 
+                mensaje: 'Error al iniciar sesión' 
+            });
+        } finally {
+            connection.release(); // Siempre liberar la conexión
         }
-    } catch (err) {
-        console.error('Error al iniciar sesión:', err);
-        return res.status(500).send('Error al iniciar sesión');
+
+    } catch (error) {
+        console.error('Error al conectar con la base de datos:', error);
+        res.status(500).json({ 
+            success: false, 
+            mensaje: 'Error al iniciar sesión' 
+        });
     }
 });
 
