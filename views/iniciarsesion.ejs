@@ -220,7 +220,38 @@ button:hover {
 
     signInBtn.addEventListener('click', () => {
       wrapper.classList.remove('active');
-    });
+    });
+//aqui empezo lo que copie
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const formData = new FormData(e.target);
+    const datos = {
+        correo: formData.get('correo'),
+        contraseña: formData.get('contraseña')
+    };
+
+    try {
+        const response = await fetch('/login', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(datos)
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            window.location.href = data.redirect;
+        } else {
+            alert(data.mensaje || 'Error al iniciar sesión');
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('Error al iniciar sesión');
+    }
+});
   </script>
 </body>
 </html>
