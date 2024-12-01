@@ -31,6 +31,8 @@ app.set('views', path.join(__dirname, './views'));
 // Middleware setup
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
+// En app.js
+app.use(express.static('public'));
 app.use(express.static(path.join(__dirname, 'views')));
 app.use(session({
     secret: 'secreto',
@@ -63,9 +65,21 @@ app.get('/', (req, res) => {
 });
 
 // Principal Page Route
-app.get('/principal', (req, res) => {
-    res.render('principal');
-});
+app.get('/principal', async (req, res) => {
+    try {
+      // Asegúrate de obtener los productos de la base de datos
+      const productos = await tuModeloDeProductos.find();
+      
+      // Pasa los productos a la vista
+      res.render('principal', { 
+        productos: productos, // Asegúrate de pasar los productos como un array
+        usuario: req.session.usuario // Si estás usando sesiones para el usuario
+      });
+    } catch (error) {
+      console.error('Error:', error);
+      res.status(500).send('Error al cargar la página');
+    }
+  });
 
 // Login Page Route
 app.get('/iniciarsesion', (req, res) => {
@@ -336,156 +350,92 @@ app.post('/checkout', isAuthenticated, async (req, res) => {
 
 
 // Cart Routes
-// Add to Cart
-app.post('/agregar-al-carrito', isAuthenticated, async (req, res) => {
-    const { productoId, cantidad } = req.body;
-
-    // Validate input
-    if (!productoId || cantidad <= 0) {
-        return res.status(400).json({ error: 'Datos del producto inválidos' });
-    }
-
+// Agregar al carrito
+app.post('/carrito/agregar', async (req, res) => {
     try {
-        // Check if product exists and has sufficient stock
-        const [productoExiste] = await vitalfit.query('SELECT * FROM productos WHERE id = ?', [productoId]);
-        
-        if (productoExiste.length === 0) {
-            return res.status(404).json({ error: 'Producto no encontrado' });
-        }
-
-        const producto = productoExiste[0];
-
-        if (producto.stock < cantidad) {
-            return res.status(400).json({ error: 'Stock insuficiente' });
-        }
-
-        // Check if product already exists in cart
-        const [existeEnCarrito] = await vitalfit.query(
-            'SELECT * FROM carrito WHERE user_id = ? AND producto_id = ?', 
-            [req.session.userId, productoId]
-        );
-
-        if (existeEnCarrito.length > 0) {
-            // Update quantity if product already in cart
-            await vitalfit.query(
-                'UPDATE carrito SET cantidad = cantidad + ? WHERE user_id = ? AND producto_id = ?', 
-                [cantidad, req.session.userId, productoId]
-            );
-            return res.status(200).json({ message: 'Cantidad actualizada en el carrito' });
-        } else {
-            // Add new product to cart
-            await vitalfit.query(
-                'INSERT INTO carrito (user_id, producto_id, cantidad) VALUES (?, ?, ?)', 
-                [req.session.userId, productoId, cantidad]
-            );
-            return res.status(201).json({ message: 'Producto agregado al carrito' });
-        }
-    } catch (err) {
-        console.error('Error al agregar al carrito:', err);
-        res.status(500).json({ error: 'Error interno del servidor' });
-    }
-});
-
-// Get Cart - Consultar Carrito
-app.get('/carrito', isAuthenticated, async (req, res) => {
-    try {
-        // Fetch cart items with product details
-        const [items] = await vitalfit.query(`
-            SELECT 
-                c.id AS cart_item_id, 
-                p.id AS producto_id,
-                p.nombre, 
-                p.precio, 
-                c.cantidad, 
-                (p.precio * c.cantidad) AS total,
-                p.imagen
-            FROM carrito c
-            JOIN productos p ON c.producto_id = p.id
-            WHERE c.user_id = ?`, [req.session.userId]);
-
-        // Calculate total cart value
-        const total = items.reduce((sum, item) => sum + item.total, 0);
-
-        res.status(200).json({ 
-            items, 
-            total: parseFloat(total.toFixed(2)) 
+      const { productoId, cantidad } = req.body;
+      const usuarioId = req.session.usuario._id;
+  
+      let carrito = await Carrito.findOne({ usuario: usuarioId });
+      
+      if (!carrito) {
+        carrito = new Carrito({
+          usuario: usuarioId,
+          productos: []
         });
-    } catch (err) {
-        console.error('Error al obtener el carrito:', err);
-        res.status(500).json({ error: 'Error interno del servidor' });
+      }
+  
+      // Verificar si el producto ya existe en el carrito
+      const productoExistente = carrito.productos.find(
+        item => item.producto.toString() === productoId
+      );
+  
+      if (productoExistente) {
+        productoExistente.cantidad += parseInt(cantidad);
+      } else {
+        carrito.productos.push({
+          producto: productoId,
+          cantidad: parseInt(cantidad)
+        });
+      }
+  
+      await carrito.save();
+      res.json({ success: true, mensaje: 'Producto agregado al carrito' });
+    } catch (error) {
+      console.error('Error:', error);
+      res.status(500).json({ success: false, mensaje: 'Error al agregar al carrito' });
     }
-});
-
-// Update Cart Item Quantity
-app.put('/actualizar-carrito/:id', isAuthenticated, async (req, res) => {
-    const { cantidad } = req.body;
-    const cartItemId = req.params.id;
-
-    // Validate input
-    if (cantidad <= 0) {
-        return res.status(400).json({ error: 'Cantidad inválida' });
-    }
-
+  });
+  
+  // Obtener carrito
+  app.get('/carrito', async (req, res) => {
     try {
-        // First, check the product stock
-        const [cartItem] = await vitalfit.query(
-            'SELECT producto_id FROM carrito WHERE id = ? AND user_id = ?', 
-            [cartItemId, req.session.userId]
-        );
-
-        if (cartItem.length === 0) {
-            return res.status(404).json({ error: 'Producto no encontrado en el carrito' });
-        }
-
-        const [productoExiste] = await vitalfit.query(
-            'SELECT stock FROM productos WHERE id = ?', 
-            [cartItem[0].producto_id]
-        );
-
-        if (productoExiste[0].stock < cantidad) {
-            return res.status(400).json({ error: 'Stock insuficiente' });
-        }
-
-        // Update cart item quantity
-        await vitalfit.query(
-            'UPDATE carrito SET cantidad = ? WHERE id = ? AND user_id = ?', 
-            [cantidad, cartItemId, req.session.userId]
-        );
-
-        res.status(200).json({ message: 'Cantidad actualizada' });
-    } catch (err) {
-        console.error('Error al actualizar el carrito:', err);
-        res.status(500).json({ error: 'Error interno del servidor' });
+      const carrito = await Carrito.findOne({ usuario: req.session.usuario._id })
+        .populate('productos.producto');
+      
+      res.render('carrito', { carrito });
+    } catch (error) {
+      res.status(500).send('Error al cargar el carrito');
     }
-});
-
-// Remove Item from Cart
-app.delete('/eliminar-del-carrito/:id', isAuthenticated, async (req, res) => {
-    const cartItemId = req.params.id;
-
+  });
+  
+  // Actualizar cantidad
+  app.put('/carrito/actualizar', async (req, res) => {
     try {
-        // Verify the cart item belongs to the current user
-        const [cartItem] = await vitalfit.query(
-            'SELECT * FROM carrito WHERE id = ? AND user_id = ?', 
-            [cartItemId, req.session.userId]
-        );
-
-        if (cartItem.length === 0) {
-            return res.status(404).json({ error: 'Producto no encontrado en el carrito' });
+      const { productoId, cantidad } = req.body;
+      const usuarioId = req.session.usuario._id;
+  
+      await Carrito.findOneAndUpdate(
+        { 
+          usuario: usuarioId,
+          'productos.producto': productoId 
+        },
+        { 
+          $set: { 'productos.$.cantidad': cantidad } 
         }
-
-        // Delete the cart item
-        await vitalfit.query(
-            'DELETE FROM carrito WHERE id = ? AND user_id = ?', 
-            [cartItemId, req.session.userId]
-        );
-
-        res.status(200).json({ message: 'Producto eliminado del carrito' });
-    } catch (err) {
-        console.error('Error al eliminar del carrito:', err);
-        res.status(500).json({ error: 'Error interno del servidor' });
+      );
+  
+      res.json({ success: true, mensaje: 'Cantidad actualizada' });
+    } catch (error) {
+      res.status(500).json({ success: false, mensaje: 'Error al actualizar' });
     }
-});
+  });
+  
+  // Eliminar del carrito
+  app.delete('/carrito/eliminar/:productoId', async (req, res) => {
+    try {
+      const usuarioId = req.session.usuario._id;
+      
+      await Carrito.findOneAndUpdate(
+        { usuario: usuarioId },
+        { $pull: { productos: { producto: req.params.productoId } } }
+      );
+  
+      res.json({ success: true, mensaje: 'Producto eliminado del carrito' });
+    } catch (error) {
+      res.status(500).json({ success: false, mensaje: 'Error al eliminar' });
+    }
+  });
 
 // Clear Entire Cart
 app.delete('/vaciar-carrito', isAuthenticated, async (req, res) => {
