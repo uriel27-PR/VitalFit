@@ -764,14 +764,23 @@
             <p id="cart-total">Total: $0.00</p>
             <button class="btn-primary">Proceder al pago</button>
         </div>
-      <!-- Ejemplo de un item del carrito -->
-<div class="item-carrito" data-producto-id="<%= producto.id %>" data-precio="<%= producto.precio %>">
-    <img src="<%= producto.imagen %>" alt="<%= producto.nombre %>">
-    <h3><%= producto.nombre %></h3>
-    <p>Precio: $<%= producto.precio %></p>
-    <input type="number" class="cantidad-input" value="<%= producto.cantidad %>" min="1">
-    <button class="eliminar-producto">Eliminar</button>
-</div>
+        <div class="carrito-container">
+            <% if (typeof productos === 'undefined') { %>
+                <p>Error: No se han cargado los productos</p>
+            <% } else if (productos.length === 0) { %>
+                <p>No hay productos disponibles en este momento</p>
+            <% } else { %>
+                <% productos.forEach(function(producto) { %>
+                    <div class="item-carrito" data-producto-id="<%= producto.id %>" data-precio="<%= producto.precio %>">
+                        <img src="<%= producto.imagen %>" alt="<%= producto.nombre %>">
+                        <h3><%= producto.nombre %></h3>
+                        <p>Precio: $<%= producto.precio %></p>
+                        <input type="number" class="cantidad-input" value="1" min="1">
+                        <button class="eliminar-producto">Eliminar</button>
+                    </div>
+                <% }); %>
+            <% } %>
+        </div>
     </div>
     <script src="/js/carrito.js"></script>
 </body>
