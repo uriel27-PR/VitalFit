@@ -764,18 +764,16 @@
             <p id="cart-total">Total: $0.00</p>
             <button class="btn-primary">Proceder al pago</button>
         </div>
-        <div class="card">
-            <img src="<%= producto.imagen %>" alt="<%= producto.nombre %>">
-            <div class="card-content">
-                <h3><%= producto.nombre %></h3>
-                <p class="price">$<%= producto.precio %></p>
-                <button class="agregar-carrito" data-producto-id="<%= producto.id %>">
-                    Agregar al carrito
-                </button>
-            </div>
-        </div>
+      <!-- Ejemplo de un item del carrito -->
+<div class="item-carrito" data-producto-id="<%= producto.id %>" data-precio="<%= producto.precio %>">
+    <img src="<%= producto.imagen %>" alt="<%= producto.nombre %>">
+    <h3><%= producto.nombre %></h3>
+    <p>Precio: $<%= producto.precio %></p>
+    <input type="number" class="cantidad-input" value="<%= producto.cantidad %>" min="1">
+    <button class="eliminar-producto">Eliminar</button>
+</div>
     </div>
-    <script src="/js/cart.js"></script>
+    <script src="/js/carrito.js"></script>
 </body>
 </head>
 
