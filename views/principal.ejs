@@ -561,6 +561,42 @@
                 width: calc(50% - 20px);
             }
         }
+
+        .mensaje {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    padding: 15px;
+    border-radius: 5px;
+    z-index: 1000;
+}
+
+.mensaje.success {
+    background-color: #4CAF50;
+    color: white;
+}
+
+.mensaje.error {
+    background-color: #f44336;
+    color: white;
+}
+
+.quantity-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.quantity-controls button {
+    padding: 5px 10px;
+    border: none;
+    background-color: #ddd;
+    cursor: pointer;
+}
+
+.quantity-controls button:hover {
+    background-color: #ccc;
+}
     </style>
 
 <head>
@@ -727,10 +763,19 @@
             </div>
             <p id="cart-total">Total: $0.00</p>
             <button class="btn-primary">Proceder al pago</button>
-            <!-- Agrega esto antes del cierre del body -->
-<script src="/cart.js"></script>
+        </div>
+        <div class="card">
+            <img src="<%= producto.imagen %>" alt="<%= producto.nombre %>">
+            <div class="card-content">
+                <h3><%= producto.nombre %></h3>
+                <p class="price">$<%= producto.precio %></p>
+                <button class="agregar-carrito" data-producto-id="<%= producto.id %>">
+                    Agregar al carrito
+                </button>
+            </div>
         </div>
     </div>
+    <script src="/js/cart.js"></script>
 </body>
 </head>
 
