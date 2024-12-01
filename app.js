@@ -13,16 +13,26 @@ import mysql from 'mysql2/promise';
 const app = express();
 const PORT = 3002;
 
-// Database Connection
-const vitalfit = await mysql.createConnection({
+// Configuración de la base de datos con manejo de errores
+const pool = mysql.createPool({
     host: 'localhost',
     user: 'root',
-    password: '',
-    database: 'vitalfit',
+    password: '', // Asegúrate de que esta sea tu contraseña correcta
+    database: 'vitalfit', // Asegúrate de que este sea el nombre correcto de tu base de datos
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0
 });
+
+// Verificar la conexión al iniciar la aplicación
+pool.getConnection()
+    .then(connection => {
+        console.log('Base de datos conectada exitosamente');
+        connection.release();
+    })
+    .catch(error => {
+        console.error('Error al conectar con la base de datos:', error);
+    });
 
 // Middleware Configuration
 app.set('view engine', 'ejs');
@@ -59,9 +69,33 @@ const isAuthenticated = (req, res, next) => {
     next();
 };
 
-// Root Route - Redirect to Principal Page
-app.get('/', (req, res) => {
-    res.render('principal');
+app.get('/', async (req, res) => {
+    try {
+        // Primero intentamos obtener la conexión
+        const connection = await pool.getConnection();
+        console.log('Conexión a la base de datos establecida');
+        
+        try {
+            // Intentamos obtener los productos
+            const [productos] = await connection.execute('SELECT * FROM productos');
+            console.log('Productos obtenidos:', productos);
+            
+            // Renderizamos la vista con los productos
+            res.render('principal', { 
+                productos: productos,
+                usuario: req.session.usuario 
+            });
+        } catch (queryError) {
+            console.error('Error al ejecutar la consulta:', queryError);
+            res.status(500).send('Error al obtener los productos de la base de datos');
+        } finally {
+            // Siempre liberamos la conexión
+            connection.release();
+        }
+    } catch (connectionError) {
+        console.error('Error al conectar con la base de datos:', connectionError);
+        res.status(500).send('Error al conectar con la base de datos');
+    }
 });
 
 // Principal Page Route
