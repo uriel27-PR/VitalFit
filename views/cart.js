@@ -1,39 +1,79 @@
-// cart.js
+// public/js/cart.js
 document.addEventListener('DOMContentLoaded', function() {
     // Referencias a elementos del DOM
+    const cartModal = document.getElementById('cart-modal');
     const cartItemsBody = document.getElementById('cart-items-body');
     const cartTotal = document.getElementById('cart-total');
     const clearCartBtn = document.getElementById('clear-cart');
-    
-    // Cargar carrito al iniciar
-    loadCart();
+    const closeModal = document.querySelector('.close');
 
-    // Función para cargar el carrito
+    // Mostrar/Ocultar modal del carrito
+    document.querySelector('.cart-icon').addEventListener('click', () => {
+        cartModal.style.display = 'block';
+        loadCart(); // Cargar carrito al abrir
+    });
+
+    closeModal.addEventListener('click', () => {
+        cartModal.style.display = 'none';
+    });
+
+    // Agregar productos al carrito
+    document.addEventListener('click', async function(e) {
+        if (e.target.classList.contains('agregar-carrito')) {
+            const productoId = e.target.dataset.productoId;
+            try {
+                const response = await fetch('/agregar-al-carrito', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        productoId: productoId,
+                        cantidad: 1
+                    })
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    mostrarMensaje('Producto agregado al carrito', 'success');
+                    loadCart();
+                } else {
+                    mostrarMensaje(data.error, 'error');
+                }
+            } catch (error) {
+                mostrarMensaje('Error al agregar al carrito', 'error');
+            }
+        }
+    });
+
+    // Cargar contenido del carrito
     async function loadCart() {
         try {
             const response = await fetch('/carrito');
             const data = await response.json();
-            
             renderCart(data.items);
             updateTotal(data.total);
         } catch (error) {
-            console.error('Error al cargar el carrito:', error);
+            mostrarMensaje('Error al cargar el carrito', 'error');
         }
     }
 
-    // Función para renderizar el carrito
+    // Renderizar items del carrito
     function renderCart(items) {
         cartItemsBody.innerHTML = '';
         items.forEach(item => {
             const row = document.createElement('tr');
             row.innerHTML = `
                 <td>${item.nombre}</td>
-                <td>$${item.precio}</td>
+                <td>$${item.precio.toFixed(2)}</td>
                 <td>
-                    <input type="number" value="${item.cantidad}" 
-                           min="1" onchange="updateQuantity(${item.cart_item_id}, this.value)">
+                    <div class="quantity-controls">
+                        <button onclick="updateQuantity(${item.cart_item_id}, ${item.cantidad - 1})">-</button>
+                        <span>${item.cantidad}</span>
+                        <button onclick="updateQuantity(${item.cart_item_id}, ${item.cantidad + 1})">+</button>
+                    </div>
                 </td>
-                <td>$${item.total}</td>
+                <td>$${item.total.toFixed(2)}</td>
                 <td>
                     <button onclick="removeItem(${item.cart_item_id})" class="btn-delete">
                         <i class="fas fa-trash"></i>
@@ -44,81 +84,81 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Función para actualizar el total
-    function updateTotal(total) {
-        cartTotal.textContent = `Total: $${total.toFixed(2)}`;
-    }
-
-    // Función para agregar al carrito
-    window.addToCart = async function(productoId) {
-        try {
-            const response = await fetch('/agregar-al-carrito', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    productoId: productoId,
-                    cantidad: 1
-                })
-            });
-            
-            if (response.ok) {
-                loadCart(); // Recargar carrito
-            }
-        } catch (error) {
-            console.error('Error al agregar al carrito:', error);
-        }
-    };
-
-    // Función para actualizar cantidad
+    // Actualizar cantidad
     window.updateQuantity = async function(cartItemId, newQuantity) {
+        if (newQuantity < 1) return;
+        
         try {
             const response = await fetch(`/actualizar-carrito/${cartItemId}`, {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({
-                    cantidad: parseInt(newQuantity)
-                })
+                body: JSON.stringify({ cantidad: newQuantity })
             });
-            
+
             if (response.ok) {
-                loadCart(); // Recargar carrito
+                loadCart();
+                mostrarMensaje('Cantidad actualizada', 'success');
+            } else {
+                const data = await response.json();
+                mostrarMensaje(data.error, 'error');
             }
         } catch (error) {
-            console.error('Error al actualizar cantidad:', error);
+            mostrarMensaje('Error al actualizar cantidad', 'error');
         }
     };
 
-    // Función para eliminar item
+    // Eliminar item del carrito
     window.removeItem = async function(cartItemId) {
+        if (!confirm('¿Estás seguro de eliminar este producto?')) return;
+
         try {
             const response = await fetch(`/eliminar-del-carrito/${cartItemId}`, {
                 method: 'DELETE'
             });
-            
+
             if (response.ok) {
-                loadCart(); // Recargar carrito
+                loadCart();
+                mostrarMensaje('Producto eliminado del carrito', 'success');
             }
         } catch (error) {
-            console.error('Error al eliminar item:', error);
+            mostrarMensaje('Error al eliminar producto', 'error');
         }
     };
 
-    // Evento para vaciar carrito
+    // Vaciar carrito
     clearCartBtn.addEventListener('click', async function() {
+        if (!confirm('¿Estás seguro de vaciar el carrito?')) return;
+
         try {
             const response = await fetch('/vaciar-carrito', {
                 method: 'DELETE'
             });
-            
+
             if (response.ok) {
-                loadCart(); // Recargar carrito
+                loadCart();
+                mostrarMensaje('Carrito vaciado', 'success');
             }
         } catch (error) {
-            console.error('Error al vaciar carrito:', error);
+            mostrarMensaje('Error al vaciar carrito', 'error');
         }
     });
+
+    // Función para mostrar mensajes
+    function mostrarMensaje(mensaje, tipo) {
+        const div = document.createElement('div');
+        div.className = `mensaje ${tipo}`;
+        div.textContent = mensaje;
+        document.body.appendChild(div);
+
+        setTimeout(() => {
+            div.remove();
+        }, 3000);
+    }
+
+    // Actualizar total
+    function updateTotal(total) {
+        cartTotal.textContent = `Total: $${total.toFixed(2)}`;
+    }
 });
