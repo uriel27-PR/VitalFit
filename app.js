@@ -8,32 +8,21 @@ import express from 'express';
 import bodyParser from 'body-parser';
 import session from 'express-session';
 import multer from 'multer';
-import bcrypt from 'bcrypt';
 import mysql from 'mysql2/promise';
 
 const app = express();
-const PORT = 3002;
+const PORT = 3001;
 
-// Configuración de la base de datos con manejo de errores
-const pool = mysql.createPool({
+// Database Connection
+const vitalfit = await mysql.createConnection({
     host: 'localhost',
     user: 'root',
-    password: '', // Asegúrate de que esta sea tu contraseña correcta
-    database: 'vitalfit', // Asegúrate de que este sea el nombre correcto de tu base de datos
+    password: '',
+    database: 'vitalfit',
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0
 });
-
-// Verificar la conexión al iniciar la aplicación
-pool.getConnection()
-    .then(connection => {
-        console.log('Base de datos conectada exitosamente');
-        connection.release();
-    })
-    .catch(error => {
-        console.error('Error al conectar con la base de datos:', error);
-    });
 
 // Middleware Configuration
 app.set('view engine', 'ejs');
@@ -42,14 +31,11 @@ app.set('views', path.join(__dirname, './views'));
 // Middleware setup
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
-// En app.js
-app.use(express.static('public'));
 app.use(express.static(path.join(__dirname, 'views')));
-// Configuración de la sesión
 app.use(session({
-    secret: 'tu_secreto_aqui',
+    secret: 'secreto',
     resave: false,
-    saveUninitialized: false
+    saveUninitialized: true
 }));
 
 // Multer Configuration for File Uploads
@@ -71,64 +57,14 @@ const isAuthenticated = (req, res, next) => {
     next();
 };
 
-app.get('/', async (req, res) => {
-    try {
-        // Primero intentamos obtener la conexión
-        const connection = await pool.getConnection();
-        console.log('Conexión a la base de datos establecida');
-        
-        try {
-            // Intentamos obtener los productos
-            const [productos] = await connection.execute('SELECT * FROM productos');
-            console.log('Productos obtenidos:', productos);
-            
-            // Renderizamos la vista con los productos
-            res.render('principal', { 
-                productos: productos,
-                usuario: req.session.usuario 
-            });
-        } catch (queryError) {
-            console.error('Error al ejecutar la consulta:', queryError);
-            res.status(500).send('Error al obtener los productos de la base de datos');
-        } finally {
-            // Siempre liberamos la conexión
-            connection.release();
-        }
-    } catch (connectionError) {
-        console.error('Error al conectar con la base de datos:', connectionError);
-        res.status(500).send('Error al conectar con la base de datos');
-    }
+// Root Route - Redirect to Principal Page
+app.get('/', (req, res) => {
+    res.render('principal');
 });
 
-// Ruta para la página principal
-app.get('/principal', async (req, res) => {
-    // Verificar si el usuario está autenticado
-    if (!req.session.usuario) {
-        return res.redirect('/');
-    }
-
-    try {
-        const connection = await pool.getConnection();
-        
-        try {
-            // Obtener los productos
-            const [productos] = await connection.execute('SELECT * FROM productos');
-            
-            // Renderizar la vista con los productos y la información del usuario
-            res.render('principal', { 
-                productos: productos,
-                usuario: req.session.usuario
-            });
-        } catch (error) {
-            console.error('Error al obtener productos:', error);
-            res.status(500).send('Error al cargar la página');
-        } finally {
-            connection.release();
-        }
-    } catch (error) {
-        console.error('Error de conexión:', error);
-        res.status(500).send('Error al cargar la página');
-    }
+// Principal Page Route
+app.get('/principal', (req, res) => {
+    res.render('principal');
 });
 
 // Login Page Route
@@ -136,70 +72,23 @@ app.get('/iniciarsesion', (req, res) => {
     res.render('iniciarsesion');
 });
 
-// Ruta para procesar el inicio de sesión
-app.post('/login', async (req, res) => {
+// Login Process
+app.post('/iniciarsesion', async (req, res) => {
+    const { email, password } = req.body;
+
     try {
-        const { correo, contraseña } = req.body;
-        
-        // Obtener conexión del pool
-        const connection = await pool.getConnection();
-        
-        try {
-            // Buscar el usuario por correo
-            const [usuarios] = await connection.execute(
-                'SELECT * FROM usuarios WHERE correo = ?',
-                [correo]
-            );
+        const [results] = await vitalfit.query('SELECT * FROM usuarios WHERE email = ? AND password = ?', [email, password]);
 
-            // Verificar si se encontró el usuario
-            if (usuarios.length === 0) {
-                return res.status(401).json({ 
-                    success: false, 
-                    mensaje: 'Correo o contraseña incorrectos' 
-                });
-            }
-
-            const usuario = usuarios[0];
-
-            // Verificar la contraseña
-            const contraseñaCorrecta = await bcrypt.compare(contraseña, usuario.contraseña);
-
-            if (!contraseñaCorrecta) {
-                return res.status(401).json({ 
-                    success: false, 
-                    mensaje: 'Correo o contraseña incorrectos' 
-                });
-            }
-
-            // Guardar información del usuario en la sesión
-            req.session.usuario = {
-                id: usuario.id,
-                nombre: usuario.nombre,
-                correo: usuario.correo
-            };
-
-            // Redirigir al usuario a la página principal
-            res.json({ 
-                success: true, 
-                redirect: '/principal' 
-            });
-
-        } catch (error) {
-            console.error('Error en la consulta:', error);
-            res.status(500).json({ 
-                success: false, 
-                mensaje: 'Error al iniciar sesión' 
-            });
-        } finally {
-            connection.release(); // Siempre liberar la conexión
+        if (results.length > 0) {
+            const usuario = results[0];
+            req.session.userId = usuario.id;
+            return res.redirect('/opcionescuenta');
+        } else {
+            return res.status(401).render('iniciarsesion', { error: 'Credenciales incorrectas' });
         }
-
-    } catch (error) {
-        console.error('Error al conectar con la base de datos:', error);
-        res.status(500).json({ 
-            success: false, 
-            mensaje: 'Error al iniciar sesión' 
-        });
+    } catch (err) {
+        console.error('Error al iniciar sesión:', err);
+        return res.status(500).send('Error al iniciar sesión');
     }
 });
 
@@ -304,252 +193,102 @@ app.post('/suscribir-boletin', async (req, res) => {
     }
 });
 
-// Ruta para la página de pago
-app.get('/pago', isAuthenticated, async (req, res) => {
+// Payment Page
+app.get('/pago', isAuthenticated, (req, res) => {
+    res.render('pago');
+});
+
+// Cart Routes
+// Add to Cart
+app.post('/agregar-al-carrito', isAuthenticated, async (req, res) => {
+    const { productoId, cantidad } = req.body;
+
     try {
-        // Obtener los items del carrito para el usuario actual
+        const [producto] = await vitalfit.query('SELECT stock FROM productos WHERE id = ?', [productoId]);
+
+        if (!producto || producto.stock < cantidad) {
+            return res.status(400).json({ error: 'Stock insuficiente' });
+        }
+
+        const [cartItem] = await vitalfit.query(
+            'SELECT * FROM carrito WHERE user_id = ? AND producto_id = ?',
+            [req.session.userId, productoId]
+        );
+
+        if (cartItem) {
+            await vitalfit.query(
+                'UPDATE carrito SET cantidad = cantidad + ? WHERE id = ?',
+                [cantidad, cartItem.id]
+            );
+        } else {
+            await vitalfit.query(
+                'INSERT INTO carrito (user_id, producto_id, cantidad) VALUES (?, ?, ?)',
+                [req.session.userId, productoId, cantidad]
+            );
+        }
+
+        res.status(200).json({ message: 'Producto agregado al carrito' });
+    } catch (err) {
+        console.error('Error al agregar al carrito:', err);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
+// Get Cart
+app.get('/carrito', isAuthenticated, async (req, res) => {
+    try {
         const [items] = await vitalfit.query(`
             SELECT c.id, p.nombre, p.precio, c.cantidad, (p.precio * c.cantidad) AS total
             FROM carrito c
             JOIN productos p ON c.producto_id = p.id
             WHERE c.user_id = ?`, [req.session.userId]);
 
-        // Calcular el total del carrito
         const total = items.reduce((sum, item) => sum + item.total, 0);
-
-        // Renderizar la página de pago con los items y el total
-        res.render('pago', { 
-            items: items, 
-            total: total 
-        });
+        res.status(200).json({ items, total });
     } catch (err) {
-        console.error('Error al obtener items para pago:', err);
-        res.status(500).send('Error al cargar la página de pago');
+        console.error('Error al obtener el carrito:', err);
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
+// Update Cart Item Quantity
+app.put('/actualizar-carrito/:id', isAuthenticated, async (req, res) => {
+    const { cantidad } = req.body;
+    const cartItemId = req.params.id;
 
-
-// Enhanced Checkout Process
-app.post('/checkout', isAuthenticated, async (req, res) => {
-    const { 
-        paymentMethod, 
-        totalAmount, 
-        paymentReceived, 
-        change 
-    } = req.body;
-    
     try {
-        // Start a transaction
-        await vitalfit.beginTransaction();
-
-        // Get cart items
-        const [cartItems] = await vitalfit.query(`
-            SELECT 
-                c.producto_id, 
-                c.cantidad, 
-                p.precio,
-                p.nombre
-            FROM carrito c
-            JOIN productos p ON c.producto_id = p.id
-            WHERE c.user_id = ?
-        `, [req.session.userId]);
-
-        // Validate cart is not empty
-        if (cartItems.length === 0) {
-            await vitalfit.rollback();
-            return res.status(400).json({ error: 'El carrito está vacío' });
-        }
-
-        // Calculate total amount from cart items (for verification)
-        const calculatedTotal = cartItems.reduce(
-            (sum, item) => sum + (item.precio * item.cantidad), 
-            0
-        ).toFixed(2);
-
-        // Verify total amount matches
-        if (parseFloat(calculatedTotal) !== parseFloat(totalAmount)) {
-            await vitalfit.rollback();
-            return res.status(400).json({ error: 'Monto total no coincide' });
-        }
-
-        // Insert sale record
-        const [saleResult] = await vitalfit.query(
-            `INSERT INTO ventas (
-                user_id, 
-                total_amount, 
-                payment_method, 
-                payment_received, 
-                change_amount, 
-                status
-            ) VALUES (?, ?, ?, ?, ?, ?)`,
-            [
-                req.session.userId, 
-                totalAmount, 
-                paymentMethod, 
-                paymentReceived, 
-                change, 
-                'completado'
-            ]
-        );
-
-        const ventaId = saleResult.insertId;
-
-        // Insert sale details and update product stock
-        for (let item of cartItems) {
-            await vitalfit.query(
-                `INSERT INTO detalle_ventas (
-                    venta_id, 
-                    producto_id, 
-                    cantidad, 
-                    precio_unitario, 
-                    subtotal
-                ) VALUES (?, ?, ?, ?, ?)`,
-                [
-                    ventaId, 
-                    item.producto_id, 
-                    item.cantidad, 
-                    item.precio, 
-                    item.precio * item.cantidad
-                ]
-            );
-
-            // Update product stock
-            await vitalfit.query(
-                'UPDATE productos SET stock = stock - ? WHERE id = ?',
-                [item.cantidad, item.producto_id]
-            );
-        }
-
-        // Clear cart after successful checkout
-        await vitalfit.query(
-            'DELETE FROM carrito WHERE user_id = ?', 
-            [req.session.userId]
-        );
-
-        // Commit transaction
-        await vitalfit.commit();
-
-        res.status(200).json({ 
-            message: 'Compra realizada exitosamente', 
-            ventaId,
-            totalAmount,
-            paymentReceived,
-            change
-        });
+        await vitalfit.query('UPDATE carrito SET cantidad = ? WHERE id = ? AND user_id = ?', 
+                             [cantidad, cartItemId, req.session.userId]);
+        res.status(200).json({ message: 'Cantidad actualizada' });
     } catch (err) {
-        // Rollback transaction in case of error
-        await vitalfit.rollback();
-        console.error('Error en checkout:', err);
-        res.status(500).json({ error: 'Error al procesar la compra', details: err.message });
+        console.error('Error al actualizar el carrito:', err);
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
+// Remove Item from Cart
+app.delete('/eliminar-del-carrito/:id', isAuthenticated, async (req, res) => {
+    const cartItemId = req.params.id;
 
-// Cart Routes
-// Agregar al carrito
-app.post('/carrito/agregar', async (req, res) => {
     try {
-      const { productoId, cantidad } = req.body;
-      const usuarioId = req.session.usuario._id;
-  
-      let carrito = await Carrito.findOne({ usuario: usuarioId });
-      
-      if (!carrito) {
-        carrito = new Carrito({
-          usuario: usuarioId,
-          productos: []
-        });
-      }
-  
-      // Verificar si el producto ya existe en el carrito
-      const productoExistente = carrito.productos.find(
-        item => item.producto.toString() === productoId
-      );
-  
-      if (productoExistente) {
-        productoExistente.cantidad += parseInt(cantidad);
-      } else {
-        carrito.productos.push({
-          producto: productoId,
-          cantidad: parseInt(cantidad)
-        });
-      }
-  
-      await carrito.save();
-      res.json({ success: true, mensaje: 'Producto agregado al carrito' });
-    } catch (error) {
-      console.error('Error:', error);
-      res.status(500).json({ success: false, mensaje: 'Error al agregar al carrito' });
+        await vitalfit.query('DELETE FROM carrito WHERE id = ? AND user_id = ?', [cartItemId, req.session.userId]);
+        res.status(200).json({ message: 'Producto eliminado del carrito' });
+    } catch (err) {
+        console.error('Error al eliminar del carrito:', err);
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
-  });
-  
-  // Obtener carrito
-  app.get('/carrito', async (req, res) => {
-    try {
-      const carrito = await Carrito.findOne({ usuario: req.session.usuario._id })
-        .populate('productos.producto');
-      
-      res.render('carrito', { carrito });
-    } catch (error) {
-      res.status(500).send('Error al cargar el carrito');
-    }
-  });
-  
-  // Actualizar cantidad
-  app.put('/carrito/actualizar', async (req, res) => {
-    try {
-      const { productoId, cantidad } = req.body;
-      const usuarioId = req.session.usuario._id;
-  
-      await Carrito.findOneAndUpdate(
-        { 
-          usuario: usuarioId,
-          'productos.producto': productoId 
-        },
-        { 
-          $set: { 'productos.$.cantidad': cantidad } 
-        }
-      );
-  
-      res.json({ success: true, mensaje: 'Cantidad actualizada' });
-    } catch (error) {
-      res.status(500).json({ success: false, mensaje: 'Error al actualizar' });
-    }
-  });
-  
-  // Eliminar del carrito
-  app.delete('/carrito/eliminar/:productoId', async (req, res) => {
-    try {
-      const usuarioId = req.session.usuario._id;
-      
-      await Carrito.findOneAndUpdate(
-        { usuario: usuarioId },
-        { $pull: { productos: { producto: req.params.productoId } } }
-      );
-  
-      res.json({ success: true, mensaje: 'Producto eliminado del carrito' });
-    } catch (error) {
-      res.status(500).json({ success: false, mensaje: 'Error al eliminar' });
-    }
-  });
+});
 
 // Clear Entire Cart
 app.delete('/vaciar-carrito', isAuthenticated, async (req, res) => {
     try {
-        // Delete all cart items for the current user
-        await vitalfit.query(
-            'DELETE FROM carrito WHERE user_id = ?', 
-            [req.session.userId]
-        );
-
+        await vitalfit.query('DELETE FROM carrito WHERE user_id = ?', [req.session.userId]);
         res.status(200).json({ message: 'Carrito vaciado' });
     } catch (err) {
         console.error('Error al vaciar el carrito:', err);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
-
 
 // Start Server
 app.listen(PORT, () => {
