@@ -782,7 +782,6 @@
             <% } %>
         </div>
     </div>
-    <script src="/js/carrito.js"></script>
 </body>
 </head>
 
@@ -1063,6 +1062,62 @@
                 ? 'block' 
                 : 'none';
         }
+
+        // Ejemplo de agregar al carrito
+async function agregarAlCarrito(productoId, cantidad, precio) {
+    try {
+        const usuarioId = obtenerIdUsuarioActual(); // Implementa esta función para obtener el ID del usuario logueado
+        
+        const respuesta = await fetch('/agregar-carrito', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                usuarioId,
+                productoId,
+                cantidad,
+                precio
+            })
+        });
+        
+        const datos = await respuesta.json();
+        
+        if (respuesta.ok) {
+            alert('Producto agregado al carrito');
+            cargarCarrito(); // Función para recargar el carrito
+        } else {
+            throw new Error(datos.message);
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('No se pudo agregar el producto al carrito');
+    }
+}
+
+// Ejemplo de cargar carrito
+async function cargarCarrito() {
+    try {
+        const usuarioId = obtenerIdUsuarioActual();
+        const respuesta = await fetch(`/carrito/${usuarioId}`);
+        const productos = await respuesta.json();
+        
+        // Renderizar productos en el carrito
+        const carritoElemento = document.getElementById('carrito-lista');
+        carritoElemento.innerHTML = '';
+        
+        productos.forEach(producto => {
+            const elementoProducto = document.createElement('div');
+            elementoProducto.innerHTML = `
+                ${producto.nombre} - Cantidad: ${producto.cantidad} - $${producto.subtotal}
+                <button onclick="eliminarDelCarrito(${producto.id})">Eliminar</button>
+            `;
+            carritoElemento.appendChild(elementoProducto);
+        });
+    } catch (error) {
+        console.error('Error al cargar carrito:', error);
+    }
+}
     
         // Product and Brand Data (would typically come from an API)
         const productosDestacados = [
